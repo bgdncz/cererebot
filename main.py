@@ -20,21 +20,26 @@ def today():
 
 # constants
 
-TOKEN = 'TOKEN'
+TOKEN = ''
 
 START_MSG = 'Bună\! Hai să creem cererea/plângerea/scrisoarea ta nouă\. Poți să anulezi oricând procesul prin comanda /anulare\.'
 ADDRESS_MSG = 'În primul rând, am nevoie de adresa persoanei/instituției căreia te adresezi\. Aceasta apare în partea de dreapta sus\.'
 TO_MSG = 'Mulțumesc\! Cui îi este adresată scrisoarea ta? De exemplu: Domnului Primar'
 CONTENT_MSG = 'OK\! Care este conținutul scrisorii tale?\nCând scrii ceva, ai posibilitatea să formatezi textul în *bold*, _italic_, __underline__ sau să adaugi un link prin interfața Telegram; eu le înțeleg pe toate\.'
-END_MSG = 'Cererea/plângerea ta e gata 🎉\nDacă vrei să o semnezi, o poți face pe [MSign](https://msign.gov.md/#/sign/upload)\.\nDacă vrei să mai creezi un document, dă /start\.'
+END_MSG = 'Cererea/plângerea ta e gata 🎉\nDacă vrei să o semnezi electronic, o poți face pe [MSign](https://msign.gov.md/#/sign/upload)\.\nDacă vrei să mai creezi un document, dă /start\.'
 CANCEL_MSG = 'Ok, poate data viitoare\. Poți să începi o scrisoare nouă prin /start\.'
+SIGN_STAMP_MSG = 'Vrei să pui o semnătură sau ștampilă pe scrisoare?'
+SIGN_STAMP_KEYBOARD = [['Semnătură', 'Ștampilă', 'Nu']]
+SIGN_MSG = 'Trimite o imagine sau un fișier JPEG/PNG care conține ștampila/semnătura ta:'
+ERR_MSG = 'Ceva nu a mers bine\. Încearcă să creezi o cerere din nou prin comanda /start\. \(Poți să faci forward la mesaje ca să nu te complici\)'
+ABOUT_MSG = 'Acest bot a fost creat de @boghison\. Codul este disponibil [aici](https://github.com/boghison/cererebot)\.'
 
 PAR_INDENT = '<font color="#ffffff">aaaaaa</font>'
 
-ADDRESS, TO, CONTENT = range(3)
+ADDRESS, TO, CONTENT, SIGN, SIGN2 = range(5)
 
 TEMPLATE = """
-<br><br><br>
+<br>
 <p align="right">{address}</p>
 <br><br>
 <p align="center">{to}</p>
@@ -45,10 +50,23 @@ TEMPLATE = """
 <br>
 
 <center>{date}                                                              {name}</center>
+<br>
 """
 
 class MyFPDF(FPDF, HTMLMixin):
-    pass
+    def create(self, data):
+        self.set_doc_option('core_fonts_encoding', 'utf-8')
+        self.add_font('Merriweather', '', 'merriweather.ttf', uni=True)
+        self.add_font('Merriweather', 'B', 'merriweatherB.ttf', uni=True)
+        self.add_font('Merriweather', 'I', 'merriweatherI.ttf', uni=True)
+        self.set_font('Merriweather', '', 14)
+        self.add_page()
+        self.set_margin(25)
+        self.write_html(TEMPLATE.format(**data))
+
+    def stamp(self, img_url, height):
+        self.image(img_url, x=130, h=height)
+
         
 
 def start(update: Update, ctx: CallbackContext) -> int:
@@ -74,33 +92,55 @@ def to(update: Update, ctx: CallbackContext) -> int:
     update.message.reply_markdown_v2(CONTENT_MSG)
     return CONTENT
 
+def sign(update: Update, ctx: CallbackContext) -> int:
+    msg = update.message.text
+    if msg == 'Semnătură':
+        ctx.user_data["img_height"] = 15 # mm
+    elif msg == "Ștampilă":
+        ctx.user_data["img_height"] = 35 # mm
+    else:
+        pdf = MyFPDF()
+        pdf.create(ctx.user_data)
+        update.message.reply_document(bytes(pdf.output()), filename="document.pdf", caption=END_MSG, parse_mode=constants.PARSEMODE_MARKDOWN_V2, reply_markup=ReplyKeyboardRemove())
+        del pdf
+        ctx.user_data.clear()
+        return ConversationHandler.END
+
+    update.message.reply_markdown_v2(SIGN_MSG, reply_markup=ReplyKeyboardRemove())
+    return SIGN2
+
+def sign2(update: Update, ctx: CallbackContext) -> int:
+    img_url = ""
+    if update.message.document:
+        img_url = update.message.document.get_file().file_path
+    else:
+        img_url = update.message.photo[-1].get_file().file_path
+    
+    pdf = MyFPDF()
+    height = ctx.user_data["img_height"]
+    del ctx.user_data["img_height"]
+    pdf.create(ctx.user_data)
+    pdf.stamp(img_url, height)
+
+    update.message.reply_document(bytes(pdf.output()), filename="document.pdf", caption=END_MSG, parse_mode=constants.PARSEMODE_MARKDOWN_V2)
+    del pdf
+    ctx.user_data.clear()
+    return ConversationHandler.END
+
 def content(update: Update, ctx: CallbackContext) -> int:
     ctx.user_data["content"] = PAR_INDENT + update.message.text_html_urled.replace('\n', '<br>' + PAR_INDENT)
 
-    mine = TEMPLATE.format(**ctx.user_data)
-
-    pdf = MyFPDF()
-
-    pdf.set_doc_option('core_fonts_encoding', 'utf-8')
-    pdf.add_font('Merriweather', '', 'merriweather.ttf', uni=True)
-    pdf.add_font('Merriweather', 'B', 'merriweatherB.ttf', uni=True)
-    pdf.add_font('Merriweather', 'I', 'merriweatherI.ttf', uni=True)
-    pdf.set_font('Merriweather', '', 14)
-    
-
-    pdf.add_page()
-    pdf.set_margin(25)
-    pdf.write_html(TEMPLATE.format(**ctx.user_data))
-    update.message.reply_document(bytes(pdf.output()), filename="document.pdf", caption=END_MSG, parse_mode=constants.PARSEMODE_MARKDOWN_V2)
-
-    return ConversationHandler.END
-
+    update.message.reply_markdown_v2(SIGN_STAMP_MSG, reply_markup=ReplyKeyboardMarkup(SIGN_STAMP_KEYBOARD, one_time_keyboard=True))
+    return SIGN
 
 def cancel(update: Update, ctx: CallbackContext) -> int:
     ctx.user_data.clear()
     update.message.reply_markdown_v2(CANCEL_MSG)
 
     return ConversationHandler.END
+
+def about(update: Update, _: CallbackContext) -> None:
+    update.message.reply_markdown_v2(ABOUT_MSG)
 
 
 def main() -> None:
@@ -114,11 +154,14 @@ def main() -> None:
             ADDRESS: [MessageHandler(Filters.text & ~Filters.command, address)],
             TO: [MessageHandler(Filters.text & ~Filters.command, to)],
             CONTENT: [MessageHandler(Filters.text & ~Filters.command, content)],
+            SIGN: [MessageHandler(Filters.text & ~Filters.command, sign)],
+            SIGN2: [MessageHandler(Filters.document.file_extension("png") | Filters.document.file_extension("jpg") | Filters.photo & ~Filters.command, sign2)],
         },
         fallbacks=[CommandHandler('anulare', cancel)],
     )
 
     dispatcher.add_handler(conv_handler)
+    dispatcher.add_handler(CommandHandler("about", about))
 
     updater.start_polling()
 
