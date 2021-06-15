@@ -59,7 +59,7 @@ class MyFPDF(FPDF, HTMLMixin):
         self.add_font('Merriweather', '', 'merriweather.ttf', uni=True)
         self.add_font('Merriweather', 'B', 'merriweatherB.ttf', uni=True)
         self.add_font('Merriweather', 'I', 'merriweatherI.ttf', uni=True)
-        self.set_font('Merriweather', '', 14)
+        self.set_font('Merriweather', '', 12)
         self.add_page()
         self.set_margin(25)
         self.write_html(TEMPLATE.format(**data))
